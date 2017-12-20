@@ -54,6 +54,7 @@ module.exports = function container (get, set, clear) {
             so[k] = cmd[k]
           }
         })
+        so.periodLength = so.period
         so.debug = cmd.debug
         so.stats = !cmd.disable_stats
         so.mode = so.paper ? 'paper' : 'live'
@@ -112,7 +113,7 @@ module.exports = function container (get, set, clear) {
           ].join('') + '\n')
           process.stdout.write([
             z(15, (so.mode === 'paper' ? '      ' : (so.mode === 'live' && (so.manual === false || typeof so.manual === 'undefined')) ? '       ' + 'AUTO'.black.bgRed + '    ' : '       ' + 'MANUAL'.black.bgGreen + '  '), ' '),
-            z(13, so.period, ' '),
+            z(13, so.periodLength, ' '),
             z(29, (so.order_type === 'maker' ? so.order_type.toUpperCase().green : so.order_type.toUpperCase().red), ' '),
             z(31, (so.mode === 'paper' ? 'avg. '.grey + so.avg_slippage_pct + '%' : 'max '.grey + so.max_slippage_pct + '%'), ' '),
             z(20, (so.order_type === 'maker' ? so.order_type + ' ' + s.exchange.makerFee : so.order_type + ' ' + s.exchange.takerFee), ' ')
@@ -272,14 +273,12 @@ module.exports = function container (get, set, clear) {
             return colors.stripColors(line)
           }).join('\n')
           var data = s.lookback.slice(0, s.lookback.length - so.min_periods).map(function (period) {
-            return {
-              time: period.time,
-              open: period.open,
-              high: period.high,
-              low: period.low,
-              close: period.close,
-              volume: period.volume
+            var data = {};
+            var keys = Object.keys(period);
+            for(i = 0;i < keys.length;i++){
+              data[keys[i]] = period[keys[i]];
             }
+            return data;
           })
           var code = 'var data = ' + JSON.stringify(data) + ';\n'
           code += 'var trades = ' + JSON.stringify(s.my_trades) + ';\n'
@@ -310,9 +309,8 @@ module.exports = function container (get, set, clear) {
         }
 
         var db_cursor, trade_cursor
-        var query_start = tb().resize(so.period).subtract(so.min_periods * 2).toMilliseconds()
+        var query_start = tb().resize(so.periodLength).subtract(so.min_periods * 2).toMilliseconds()
         var days = Math.ceil((new Date().getTime() - query_start) / 86400000)
-        var trades_per_min = 0
         var session = null
         var sessions = get('db.sessions')
         var balances = get('db.balances')
@@ -467,6 +465,10 @@ module.exports = function container (get, set, clear) {
         function forwardScan () {
           function saveSession () {
             engine.syncBalance(function (err) {
+              if (!err && s.balance.asset === undefined) {
+                // TODO not the nicest place to verify the state, but did not found a better one
+                throw new Error('Error during syncing balance. Please check your API-Key')
+              }
               if (err) {
                 console.error('\n' + moment().format('YYYY-MM-DD HH:mm:ss') + ' - error syncing balance')
                 if (err.desc) console.error(err.desc)
